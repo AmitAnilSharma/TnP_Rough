@@ -1,222 +1,104 @@
 from __future__ import unicode_literals
-from django.contrib.auth import authenticate,login,logout
-from django.shortcuts import get_object_or_404, render, redirect
-from django.contrib.auth.models import User
-from .forms import RegisterForm
+from django.db import models
 from django.contrib.auth.models import User, Group
-from student.models import Student
-from django.contrib.auth.models import User
-from django.http import HttpResponse, HttpResponseRedirect
-from django.contrib.auth.decorators import login_required
-from .forms import CompaniesForm, SearchCompany, UpdatePlacementStatsForm
-from .models import Companies
+from django.dispatch import receiver
+from django.db.models.signals import post_save
 from administrator.models import Branch
-from student.models import CompanyApplicants
-
-# Views
-flagDeleted = 0
-@login_required
-def coordinatorDashboard(request):
-    user = request.user
-    listOfCoordinators = User.objects.filter(groups__name = 'Coordinator')
-    emails = User.objects.filter(is_active=True).values_list('email', flat=True).filter(groups__name = 'Coordinator')
-    if emails.filter(email = request.user.email).exists() :
-        context = {}
-        template = 'coordinator/dashboard.html'
-        return render(request,template,context)
-
-    else:
-        return HttpResponse("unauthorized")
-
-@login_required
-def registerCoordinator(request):
-    user = request.user
-    listOfCoordinators = User.objects.filter(groups__name = 'Coordinator')
-    emails = User.objects.filter(is_active=True).values_list('email', flat=True).filter(groups__name = 'Coordinator')
-    if emails.filter(email = request.user.email).exists() :
-        return HttpResponseRedirect('/coordinator/coordinatorDashboard')
-
-    else:
-        return HttpResponse("unauthorized")
-
-@login_required
-def addNewCompany(request):
-    form = CompaniesForm(request.POST or None)
-    if form.is_valid():
-        companyName = form.cleaned_data.get('name')
-        if Companies.objects.filter(name = companyName).exists():
-            HttPResponse("The Company name has already been added!")
-        else :
-            appl = form.save(commit = False)
-            appl.user = request.user
-            appl.save()
-            return HttpResponse("successful")
-        
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
-
-@login_required
-def updateCompanyStatus(request):
-    form = SearchCompany(request.POST or None)
-    if form.is_valid():
-        global flagDeleted
-        companyName = form.cleaned_data.get('name')
-        if Companies.objects.filter(name = companyName).exists():
-            Companies.objects.get(pk = companyName).delete()
-            flagDeleted = 1    
-        elif flagDeleted == 1:
-            form = CompaniesForm(request.POST or None, initial = {'name':companyName})
-            if form.is_valid():
-                print("hello")
-                appl = form.save(commit = False)
-                appl.user = request.user
-                appl.save()
-                return HttpResponse("successful")
-        else :
-            print("The company was not added before!")
-        
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
-
-
-@login_required
-def getCompanyStatus(request):
-    form = SearchCompany(request.POST or None)
-    if form.is_valid():
-        companyName = form.cleaned_data.get('name')
-        if Companies.objects.filter(name = companyName).exists():
-            companyDetails = Companies.objects.filter(name = companyName)
-            statusOfCompany = companyDetails.values_list('status', flat=True)[0]
-            print(statusOfCompany)
-        else :
-            HttpResponse("The company was not added before!")
-        
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
-
-@login_required
-def sendCompanyDetails(request):
-    form = SearchCompany(request.POST or None)
-    if form.is_valid():
-        companyName = form.cleaned_data.get('name')
-        if Companies.objects.filter(name = companyName).exists():
-            companyDetails = Companies.objects.filter(name = companyName)
-            branchesAllowed = companyDetails.values_list('branchesAllowed', flat=True)[0]
-            cgpaAllowed = companyDetails.values_list('CGPA', flat=True)[0]
-            listOfBranches = branchesAllowed.split(',')
-            for branchElement in listOfBranches:
-                branchName = Branch.objects.get(branchCode = branchElement)
-                allowedByBranches = Student.objects.filter(branch = branchName).values_list('admissionNumber', flat=True)
-                if allowedByBranches.exists():
-                    allowedByCGPA = allowedByBranches.filter(CGPA__gte = cgpaAllowed) #cgpa greater than allowed
-                    for allowedStudent in allowedByCGPA:
-                        student = Student.objects.get(admissionNumber = allowedStudent)
-                        company = Companies.objects.get(name = companyName)
-                        newApplicant = CompanyApplicants(company = company, student = student)
-                        newApplicant.save()
-                    print(allowedByCGPA)
-        else :
-            HttpResponse("The company was not added before!")
-        
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
-
-@login_required
-def checkApplicantsOfCompany(request):
-    form = SearchCompany(request.POST or None)
-    if form.is_valid():
-        companyName = form.cleaned_data.get('name')
-        if Companies.objects.filter(name = companyName).exists():
-            companyDetails = Companies.objects.get(name = companyName)
-            listOfApplicants = CompanyApplicants.objects.filter(placementStatus = 'A').filter(company = companyDetails)
-            print(listOfApplicants)
-        else :
-            HttpResponse("The company was not added before!")
-        
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
-
-@login_required
-def placedStudents(request):
-    form = SearchCompany(request.POST or None)
-    if form.is_valid():
-        companyName = form.cleaned_data.get('name')
-        if Companies.objects.filter(name = companyName).exists():
-            companyDetails = Companies.objects.get(name = companyName)
-            listOfPlaced = CompanyApplicants.objects.filter(placementStatus = 'P').filter(company = companyDetails)
-            print(listOfPlaced)
-        else :
-            HttpResponse("The company was not added before!")
-        
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
-
-@login_required
-def updateStudents(request):
-    form = UpdatePlacementStatsForm(request.POST or None)
-    if form.is_valid():
-        companyName = form.cleaned_data.get('company')
-        status = form.cleaned_data.get('status')
-        if Companies.objects.filter(name = companyName).exists():
-            students = form.cleaned_data.get('students')
-            companyDetails = Companies.objects.get(name = companyName)
-            
-            listOfQualifiers = students.split(',')
-            for qualifier in listOfQualifiers:
-                student = Student.objects.get(admissionNumber = qualifier)
-
-                applicantData = CompanyApplicants.objects.get(student = student)
-                applicantData.placementStatus = status[0]
-                applicantData.save()
-
-        else :
-            HttpResponse("The company was not added before!")
-        
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
+from django.utils import timezone
+from django.core.validators import validate_comma_separated_integer_list
+class Coordinator(models.Model):
     
-
-@login_required
-def createAnnouncement(request):
-    form = AnnouncementForm(request.POST or None)
-    if form.is_valid():
-        announcement_id = form.cleaned_data.get('announcementid')
-        text = form.cleaned_data.get('text')
-        companyName = form.cleaned_data.get('company')
-	type_of_announcement = form.cleaned_data.get('type_of_announcement')
-	if Announcement.objects.filter(announcementid = announcement_id).exists():
-		HttPResponse("The Announcement has already been added!")
-	else :
-		announce = form.save(commit = False)
-                announce = request.user
-                announce.save()
-                return HttpResponse("successful")	
-        
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
+    name = models.CharField(max_length = 120,null=True)
+    user = models.ForeignKey(User,on_delete=models.CASCADE,)
+    admissionNumber = models.IntegerField(primary_key=True)
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE)
+    yearOfGraduation = models.IntegerField(null=False)
+    rollNumber = models.IntegerField(null=False)
     
-@login_required
-def updateAnnouncement(request):
-    form = UpdateAnnouncementForm(request.POST or None)
-    if form.is_valid():
-        announcement_id = form.cleaned_data.get('announcementid')
-        text = form.cleaned_data.get('text')
-        if Announcement.objects.filter(announcementid = announcement_id).exists():
-            announce = Announcement.objects.get(announcementid = announcement_id)
-            annouce.text = text
-            annonce.save()
-        else :
-            HttpResponse("The announcement was not added before!")
+    BTECH = 'BT'
+    MTECH = 'MT'
+    MCA = 'MC'
+    MSC = 'MS'
+    MBA = 'MB'
+
+    COURSE_CHOICES = (
+        (BTECH, 'B. Tech'),
+        (MTECH, 'M. Tech'),
+        (MCA, 'MCA'),
+        (MSC, 'M. Sc'),
+        (MBA, 'MBA')
+    )
+
+    course = models.CharField(
+        max_length=2,
+        choices=COURSE_CHOICES,
+        default=BTECH,
+    )
+
+    def __str__(self) :
+        return str(self.admissionNumber)
+
+
+@receiver(post_save, sender=Coordinator)
+def ensure_profile_exists(sender, **kwargs):
+    if kwargs.get('created', False):
+        my_group = Group.objects.get(name='Coordinator')
+        coordinator = Coordinator.objects.get(user=kwargs.get('instance').user)
+        my_group.user_set.add(coordinator.user)
+
+class Companies(models.Model):
+    WAITING = 'Waiting'
+    DENIED = 'Denied'
+    ACCEPTED = 'Accepted'
+    COMPANY_STATUS = (
+        (WAITING, 'waiting'),
+        (DENIED, 'denied'),
+        (ACCEPTED, 'accepted'),
+    )
+    name = models.CharField(max_length = 120, primary_key=True)
+    user = models.ForeignKey(User,on_delete=models.CASCADE,)
+    dateOfVisit = models.DateField(null = True)
+    status = models.CharField(
+        max_length=8,
+        choices=COMPANY_STATUS,
+        default=WAITING,
+    )
+    ALIVE = 'Alive'
+    DEAD = 'Dead'
+    EXISTING_STATUS = (
+        (ALIVE, 'Alive'),
+        (DEAD, 'Dead'),
+    )
+    existing_status = models.CharField(
+        max_length=8,
+        choices=EXISTING_STATUS,
+        default=ALIVE,
+    )
+    CTC = models.FloatField(null=False)
+    branchesAllowed = models.CharField(validators=[validate_comma_separated_integer_list],max_length=200, blank=True, null=True,default='')
+    CGPA = models.FloatField(null=False, default = 7.0)
+    def __str__(self) :
+        return str(self.name)
+
+class Announcement(models.Model):
+    BROADCAST_ANNOUNCEMENT = 'Broadcasting'
+    ELIGIBLE_ANNOUNCEMENT = 'Eligible'
+    TYPE_OF_ANNOUNCEMENT = (
+        (BROADCAST_ANNOUNCEMENT, 'Broadcast'),
+        (ELIGIBLE_ANNOUNCEMENT, 'Eligible_ones'),
+    )
+    announcementid = models.CharField(max_length = 10, primary_key=True)	
+    user = models.ForeignKey(User,on_delete=models.CASCADE,)
+    company = models.CharField(max_length=100)
+    text = models.CharField(max_length=500)
+    datePublished = models.DateTimeField(default=timezone.now)
+    type_of_announcement = models.CharField(
+        max_length=20,
+        choices=TYPE_OF_ANNOUNCEMENT,
+        default=BROADCAST_ANNOUNCEMENT,
+    )
+    def __str__(self) :
+        return str(self.announcementid)
         
-    context = {'form' : form}
-    template = 'authentication/form.html'
-    return render(request,template,context)
+
 
